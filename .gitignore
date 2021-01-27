@@ -145,3 +145,4 @@ mlruns/
 *cache*
 
 sandbox/
+*.tsv
