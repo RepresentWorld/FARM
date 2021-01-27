@@ -69,6 +69,10 @@ def text_pair_classification():
     data_silo = DataSilo(
         processor=processor,
         batch_size=batch_size)
+    # Alte Version vor StreamingDataSilo
+    # data_silo = DataSilo(
+    #    processor=processor,
+    #    batch_size=batch_size, max_processes=4)
 
     # 4. Create an AdaptiveModel
     # a) which consists of a pretrained language model as a basis
@@ -126,12 +130,17 @@ def text_pair_classification():
         # device=device)
 
     # 7. Let it grow
+    #comment if going to use a stored model
     trainer.train()
 
     # 8. Hooray! You have a model. Store it:
+    # When a new model is being trained and need to be saved
     save_dir = Path("saved_models/text_pair_classification_model"+ now.strftime("%m%d%Y%H%M%S"))
     model.save(save_dir)
     processor.save(save_dir)
+
+    # When only a model needs to be loaded change the details to load the needed model
+    # save_dir = Path("saved_models/text_pair_classification_model" + "old model details %m%d%Y%H%M%S "
 
     # 9. Load it & harvest your fruits (Inference)
     #    Add your own text adapted to the dataset you provide
