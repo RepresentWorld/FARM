@@ -1,9 +1,9 @@
 # fmt: off
-import datetime
 import logging
 from pathlib import Path
 
 from farm.data_handler.data_silo import DataSilo
+from farm.data_handler.data_silo import StreamingDataSilo
 from farm.data_handler.processor import RegressionProcessor, TextPairClassificationProcessor
 from farm.experiment import initialize_optimizer
 from farm.infer import Inferencer
@@ -11,12 +11,16 @@ from farm.modeling.adaptive_model import AdaptiveModel
 from farm.modeling.language_model import LanguageModel
 from farm.modeling.prediction_head import RegressionHead, TextClassificationHead
 from farm.modeling.tokenization import Tokenizer
-from farm.train import Trainer, EarlyStopping
+from farm.train import Trainer
 from farm.utils import set_all_seeds, MLFlowLogger, initialize_device_settings
+from farm.train import Trainer, EarlyStopping
+import pandas as pd
+import math
 from datetime import datetime
 
 training_filename="patentmatch_train_balanced.tsv"
 test_filename="patentmatch_test_balanced.tsv"
+
 
 def text_pair_classification():
     logging.basicConfig(
@@ -33,44 +37,48 @@ def text_pair_classification():
     set_all_seeds(seed=42)
     device, n_gpu = initialize_device_settings(use_cuda=True)
     n_epochs = 2
-    batch_size = 64
+    batch_size = 32
     evaluate_every = 500
     lang_model = "bert-base-cased"
     label_list = ["0", "1"]
+
+    n_batches,class_weights=calc_n_batches_and_classweights(batch_size)
+
+    print("calculated n_batches")
+    print(n_batches)
+
+    print("calculated classweights")
+    print(class_weights)
 
     # 1.Create a tokenizer
     tokenizer = Tokenizer.load(
         pretrained_model_name_or_path=lang_model,
         do_lower_case=False)
 
+
     # 2. Create a DataProcessor that handles all the conversion from raw text into a pytorch Dataset
     #    We do not have a sample dataset for regression yet, add your own dataset to run the example
     processor = TextPairClassificationProcessor(tokenizer=tokenizer,
                                                 label_list=label_list,
-                                                metric="acc",
+                                                metric = "acc",
                                                 label_column_name="label",
                                                 max_seq_len=64,
                                                 train_filename=training_filename,
-                                                dev_filename=test_filename,
                                                 test_filename=test_filename,
+                                                dev_filename=test_filename,
+                                                #dev_split = 0.5,
                                                 data_dir=Path("../data"),
                                                 tasks={"text_classification"},
                                                 delimiter="\t")
 
-                                                # train_filename = training_filename,
-                                                # test_filename = test_filename,
-                                                # dev_filename = test_filename,
-                                                # dev_split = 0.5,
-
-
-    # data_dir=Path("../data/asnq_binary"),
-
     # 3. Create a DataSilo that loads several datasets (train/dev/test), provides DataLoaders for them and calculates a few descriptive statistics of our datasets
-    data_silo = DataSilo(
+    data_silo = StreamingDataSilo(
         processor=processor,
         batch_size=batch_size)
-    # Alte Version vor StreamingDataSilo
-    # data_silo = DataSilo(
+
+
+    #Alte Version vor StreamingDataSilo
+    #data_silo = DataSilo(
     #    processor=processor,
     #    batch_size=batch_size, max_processes=4)
 
@@ -79,7 +87,7 @@ def text_pair_classification():
     language_model = LanguageModel.load(lang_model)
     # b) and a prediction head on top that is suited for our task
     prediction_head = TextClassificationHead(num_labels=len(label_list),
-                                             class_weights=data_silo.calculate_class_weights(task_name="text_classification")
+                                             class_weights=class_weights # Reihenfolge: Element i entspricht Klasse i (sklearn Methode sklearn.utils.class_weight.compute_class_weights implementiert bei farm
                                              )
 
     model = AdaptiveModel(
@@ -94,8 +102,9 @@ def text_pair_classification():
         model=model,
         learning_rate=5e-6,
         device=device,
-        n_batches=len(data_silo.loaders["train"]),
+        n_batches=n_batches,
         n_epochs=n_epochs)
+
 
     now = datetime.now() # current date and time
 
@@ -110,7 +119,6 @@ def text_pair_classification():
 
     # 6. Feed everything to the Trainer, which keeps care of growing our model into powerful plant and evaluates it from time to time
     trainer = Trainer(
-
         model=model,
         optimizer=optimizer,
         data_silo=data_silo,
@@ -120,27 +128,14 @@ def text_pair_classification():
         evaluate_every=evaluate_every,
         device=device,
         early_stopping=earlystopping)
-        # model=model,
-        # optimizer=optimizer,
-        # data_silo=data_silo,
-        # epochs=n_epochs,
-        # n_gpu=n_gpu,
-        # lr_schedule=lr_schedule,
-        # evaluate_every=evaluate_every,
-        # device=device)
 
     # 7. Let it grow
-    #comment if going to use a stored model
     trainer.train()
 
     # 8. Hooray! You have a model. Store it:
-    # When a new model is being trained and need to be saved
-    save_dir = Path("saved_models/text_pair_classification_model"+ now.strftime("%m%d%Y%H%M%S"))
+    save_dir = Path("saved_models/savingModel/"+ now.strftime("%m%d%Y%H%M%S"))
     model.save(save_dir)
     processor.save(save_dir)
-
-    # When only a model needs to be loaded change the details to load the needed model
-    # save_dir = Path("saved_models/text_pair_classification_model" + "01272021103548")
 
     # 9. Load it & harvest your fruits (Inference)
     #    Add your own text adapted to the dataset you provide
@@ -153,7 +148,16 @@ def text_pair_classification():
     result = model.inference_from_dicts(dicts=basic_texts)
 
     print(result)
-    model.close_multiprocessing_pool()
+
+def calc_n_batches_and_classweights(batch_size):
+    df = pd.read_csv(Path("../data/"+training_filename), sep='\t', header=0)
+    class_0=(df['label'] == 0).sum()
+    class_1=(df['label'] == 1).sum()
+    samples=df.shape[0]
+    n_batches=math.ceil(samples/batch_size)
+
+    return n_batches, [class_1/samples,class_0/samples]
+
 
 
 if __name__ == "__main__":
