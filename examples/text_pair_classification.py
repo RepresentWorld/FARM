@@ -15,6 +15,8 @@ from farm.train import Trainer, EarlyStopping
 from farm.utils import set_all_seeds, MLFlowLogger, initialize_device_settings
 from datetime import datetime
 
+training_filename="patentmatch_train_balanced.tsv"
+test_filename="patentmatch_test_balanced.tsv"
 
 def text_pair_classification():
     logging.basicConfig(
@@ -41,16 +43,16 @@ def text_pair_classification():
         pretrained_model_name_or_path=lang_model,
         do_lower_case=False)
 
-    # 2. Create a DataProcessor that handles all the conversion from raw text into a pytorch Dataset.
-    # The TextPairClassificationProcessor expects a csv with columns called "text', "text_b" and "label"
+    # 2. Create a DataProcessor that handles all the conversion from raw text into a pytorch Dataset
+    #    We do not have a sample dataset for regression yet, add your own dataset to run the example
     processor = TextPairClassificationProcessor(tokenizer=tokenizer,
                                                 label_list=label_list,
                                                 metric="acc",
                                                 label_column_name="label",
                                                 max_seq_len=64,
-                                                train_filename="patentmatch_train_ultrabalanced.tsv",
-                                                dev_filename="patentmatch_test_ultrabalanced.tsv",
-                                                test_filename="patentmatch_test_ultrabalanced.tsv",
+                                                train_filename=training_filename,
+                                                dev_filename=test_filename,
+                                                test_filename=test_filename,
                                                 data_dir=Path("../data"),
                                                 tasks={"text_classification"},
                                                 delimiter="\t")
